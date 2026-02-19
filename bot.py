@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import requests
@@ -11,6 +13,7 @@ logger = logging.getLogger(__name__)
 # Get environment variables
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+PORT = int(os.getenv('PORT', 10000))
 
 def call_deepseek(user_message):
     """Call DeepSeek API and return the response."""
@@ -52,11 +55,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send response back to user
     await update.message.reply_text(ai_response)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for health checks."""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running!')
+    
+    def log_message(self, format, *args):
+        # Suppress HTTP server logs
+        pass
+
+def run_http_server():
+    """Run a simple HTTP server for Render health checks."""
+    server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
+    logger.info(f"HTTP server running on port {PORT}")
+    server.serve_forever()
+
 def main():
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN or not DEEPSEEK_API_KEY:
         logger.error("Missing environment variables!")
         return
+    
+    # Start HTTP server in a separate thread
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
     
     logger.info("Starting Telegram bot...")
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
